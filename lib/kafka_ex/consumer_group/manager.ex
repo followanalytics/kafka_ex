@@ -12,7 +12,6 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   alias KafkaEx.Protocol.Heartbeat.Request, as: HeartbeatRequest
   alias KafkaEx.Protocol.Heartbeat.Response, as: HeartbeatResponse
   alias KafkaEx.Protocol.LeaveGroup.Request, as: LeaveGroupRequest
-  alias KafkaEx.Protocol.LeaveGroup.Response, as: LeaveGroupResponse
   alias KafkaEx.Protocol.Metadata.Response, as: MetadataResponse
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.SyncGroup.Response, as: SyncGroupResponse
@@ -92,8 +91,11 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       ]
     )
 
-    {:ok, worker_name} =
-      KafkaEx.create_worker(:no_name, consumer_group: group_name)
+    worker_opts = Keyword.take(opts, [:uris])
+    {:ok, worker_name} = KafkaEx.create_worker(
+      :no_name,
+      [consumer_group: group_name] ++ worker_opts
+    )
 
     state = %State{
       supervisor_pid: supervisor_pid,
@@ -169,6 +171,8 @@ defmodule KafkaEx.ConsumerGroup.Manager do
   def terminate(_reason, %State{generation_id: nil, member_id: nil}), do: :ok
   def terminate(_reason, %State{} = state) do
     :ok = leave(state)
+    Process.unlink(state.worker_name)
+    KafkaEx.stop_worker(state.worker_name)
   end
 
   ### Helpers
@@ -277,6 +281,7 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     case sync_group_response do
       %SyncGroupResponse{error_code: :no_error, assignments: assignments} ->
         new_state = state
+                    |> stop_consumer()
                     |> start_consumer(unpack_assignments(assignments))
                     |> start_heartbeat_timer()
         {:ok, new_state}
@@ -339,10 +344,17 @@ defmodule KafkaEx.ConsumerGroup.Manager do
       member_id: member_id,
     }
 
-    %LeaveGroupResponse{error_code: :no_error} =
+    leave_group_response =
       KafkaEx.leave_group(leave_request, worker_name: worker_name)
 
-    Logger.debug(fn -> "Left consumer group #{group_name}" end)
+    if leave_group_response.error_code == :no_error do
+      Logger.debug(fn -> "Left consumer group #{group_name}" end)
+    else
+      Logger.warn(fn ->
+        "Received error #{inspect leave_group_response.error_code}, " <>
+        "consumer group manager will exit regardless."
+      end)
+    end
 
     :ok
   end
