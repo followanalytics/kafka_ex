@@ -285,6 +285,7 @@ defmodule KafkaEx.ConsumerGroup do
     )
 
     case Supervisor.start_child(pid, child) do
+      {:error, {:already_started, consumer_pid}} -> {:ok, consumer_pid}
       {:ok, consumer_pid} -> {:ok, consumer_pid}
       {:ok, consumer_pid, _info} -> {:ok, consumer_pid}
     end
