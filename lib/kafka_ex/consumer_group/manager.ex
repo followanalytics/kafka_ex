@@ -403,19 +403,27 @@ defmodule KafkaEx.ConsumerGroup.Manager do
     } = state,
     assignments
   ) do
-    {:ok, consumer_supervisor_pid} = ConsumerGroup.start_consumer(
+
+    case ConsumerGroup.start_consumer(
       pid,
       consumer_module,
       group_name,
       assignments,
       consumer_opts
-    )
-
-    %{
-      state |
-      assignments: assignments,
-      consumer_supervisor_pid: consumer_supervisor_pid
-    }
+    ) do
+        {:ok, consumer_supervisor_pid} ->
+          %{
+            state |
+            assignments: assignments,
+            consumer_supervisor_pid: consumer_supervisor_pid
+          }
+        {:error, {:already_started, consumer_supervisor_pid}} ->
+          %{
+            state |
+            assignments: assignments,
+            consumer_supervisor_pid: consumer_supervisor_pid
+           }
+      end
   end
 
   # Stops consuming from the member's assigned partitions and commits offsets.
